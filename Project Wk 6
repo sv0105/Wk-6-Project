@@ -1,0 +1,87 @@
+#Loading excel and forecast packages
+library(readxl)
+library(forecast)
+
+#importing excel file
+FRED <- read.csv("C:/Users/Veere/Downloads/fred.csv")
+
+#DEFINE TIME SERIES
+CPI = FRED$Consumer.Price.Index
+CV <- length(CPI)
+
+#timeseries creation for consumer price index
+CPI.ts <- ts(CPI[2:CV], start = c(2009,2), end = c(2022,12), freq = 12)
+CPIlag.ts <- ts(CPI[1:CV-1], start = c(2009,1), end = c(2022,11), freq = 12)
+
+
+CPI.data <- data.frame(CPI)
+
+# DESCRIPTIVE STATISTICS
+# NOTE:  I am using "pastecs" package for this
+# install.packages(pastecs) # <--- if necessary
+library(pastecs)
+ds <- stat.desc(CPI.data, basic = F)
+round(ds, 5)
+
+
+# PARTITIONING
+# install.packages(forecast) # <--- if necessary
+library(forecast)
+nValid <- 60 # This is a 5-year training period
+nTrain <- length(CPI.ts) - nValid
+train.ts <- window(CPI.ts, start = c(2009, 2), end = c(2023, nTrain))
+valid.ts <- window(CPI.ts, start = c(2009, nTrain + 1), end = c(2023, nTrain + nValid))
+
+
+# AUTOCORRELATIONS
+library(forecast)
+
+# SIMPLE TREND
+model_trend <- tslm(CPI.ts ~ trend)
+summary(model_trend)
+trend.res = resid(model_trend)
+# Residual Plot
+plot(trend.res, type = 'l', xlab = 'Date',
+     ylab = "Residuals", main = 'Basic Residuals',
+     lty = 1, col = 'red')
+
+
+# MODEL WITH TREND AND AR(1)
+model_ts <- tslm(CPI.ts ~ trend + CPIlag.ts)
+summary(model_ts)
+ts.res = resid(model_ts)
+# Residual Plot
+plot(ts.res, type = 'l', xlab = 'Date',
+     ylab = "Residuals", main = 'Basic Residuals',
+     lty = 1, col = 'red')
+
+# AUTOCORRLEATIONS FROM LINEAR, QUADRATIC MODELS
+par(mfrow = c(3,1))
+Acf(CPI.ts, lag.max = 24, main = "ConsumerPriceIndex Autocorrelations")
+`Acf(trend.res, lag.max = 24, main = "Linear Trend Residual Autocorrelations")
+Acf(ts.res, lag.max = 24, main = "Trend w/ AR(1) Model Residual Autocorrelations")
+
+# RECREATE FIG. 7.4/5 FOR SPOT MODEL RESIDUALS
+train.res.trend.arima <- Arima(trend.res, order = c(1,0,0))
+train.res.trend.arima.pred <- forecast(train.res.trend.arima, h = nValid)
+train.res.ts.arima <- Arima(ts.res, order = c(1,0,0))
+train.res.ts.arima.pred <- forecast(ts.res, h = nValid)
+
+par(mfrow = c(2,2))
+plot(trend.res, ylim = c(-1, 1),  ylab = "Trend Residual residuals", col = "red", lwd = 1,
+     xlab = "Date", bty = "l", xaxt = "n", xlim = c(2009,2023), main = "AR(1) on Linear Residuals")
+axis(1, at = seq(2009,2023, 1), labels = format(seq(2009,2023, 1)))
+lines(train.res.trend.arima.pred$fitted, lwd = 1)
+Acf(train.res.trend.arima.pred$residuals, lag.max = 24, main = "Trend AR(1) Residual Autocorrelations")
+plot(ts.res, ylim = c(-1, 1),  ylab = "Trend w/ AR(1) Residual residuals", col = "blue", lwd = 1,
+     xlab = "Date", bty = "l", xaxt = "n", xlim = c(2009,2023), main = "AR(1) on Trend w/ AR(1) Residuals")
+axis(1, at = seq(2009,2023, 1), labels = format(seq(2009,2023, 1)))
+lines(train.res.ts.arima.pred$fitted, lwd = 1)
+Acf(train.res.ts.arima.pred$residuals, lag.max = 24, main = "Trend w/ AR(1) Residual Autocorrelations")
+
+
+# ....................................
+# UNIT ROOTS
+library(urca)
+lc.df <- ur.df(CPI.ts, lags = 0, type = "drift")
+summary(lc.df)
